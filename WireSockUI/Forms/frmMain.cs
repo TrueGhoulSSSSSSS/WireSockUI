@@ -67,7 +67,7 @@ namespace WireSockUI.Forms
         private bool _isLogOpen = false;
         private int _logTargetHeight = 280;
         private int _logCurrentHeight = 0;
-        private int _baseFormHeight = 680;
+        private int _baseFormHeight = 580;
 
         private ModernCheckBox _chkAutostart;
         private Label _lblSessionTimer;
@@ -230,7 +230,7 @@ namespace WireSockUI.Forms
             _heroCard = new GradientPanel
             {
                 Dock = DockStyle.Top,
-                Height = 480,
+                Height = 396,
                 ColorTop = Theme.CardTop,
                 ColorBottom = Theme.CardBottom,
                 Radius = 20,
@@ -244,9 +244,9 @@ namespace WireSockUI.Forms
             {
                 Text = "DISCONNECTED",
                 Dock = DockStyle.Top,
-                Height = 64,
+                Height = 54,
                 TextAlign = ContentAlignment.BottomCenter,
-                Font = new Font("Segoe UI Black", 17f, FontStyle.Bold),
+                Font = new Font("Segoe UI Black", 16f, FontStyle.Bold),
                 ForeColor = Theme.TextDim,
                 BackColor = Color.Transparent
             };
@@ -261,7 +261,7 @@ namespace WireSockUI.Forms
                 BackColor = Color.Transparent
             };
 
-            var pnlToggle = new Panel { Dock = DockStyle.Top, Height = 110, BackColor = Color.Transparent };
+            var pnlToggle = new Panel { Dock = DockStyle.Top, Height = 84, BackColor = Color.Transparent };
             _toggleBtn = new GlowToggle { Size = new Size(96, 52) };
             pnlToggle.SizeChanged += (s, e) => { _toggleBtn.Location = new Point((pnlToggle.Width - _toggleBtn.Width) / 2, (pnlToggle.Height - _toggleBtn.Height) / 2); };
             _toggleBtn.CheckedChanged += OnToggleChanged;
@@ -383,11 +383,11 @@ namespace WireSockUI.Forms
 
             _ipLabel = new Label
             {
-                Text = "tap toggle to connect",
+                Text = string.Empty,
                 Dock = DockStyle.Bottom,
-                Height = 50,
+                Height = 36,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Font = new Font("Consolas", 9.5f),
+                Font = new Font("Consolas", 9.25f),
                 ForeColor = Theme.TextDim,
                 BackColor = Color.Transparent
             };
@@ -411,7 +411,7 @@ namespace WireSockUI.Forms
             // Сборка карточки (Снизу вверх из-за Dock)
             _heroCard.Controls.Add(pnlAutostart);
             _heroCard.Controls.Add(_ipLabel);
-            _heroCard.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 16, BackColor = Color.Transparent });
+            _heroCard.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 8, BackColor = Color.Transparent });
             _heroCard.Controls.Add(pnlButtonsRow);
             _heroCard.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 6, BackColor = Color.Transparent });
             _heroCard.Controls.Add(pnlComboRow);
@@ -924,7 +924,7 @@ namespace WireSockUI.Forms
                         _statusLabel.SetText("DISCONNECTED", Theme.TextDim);
                         _statusHint.SetText("select profile and connect", Theme.TextDim);
                         if (_heroCard != null) { _heroCard.AccentColor = Theme.Border; _heroCard.AccentIntensity = 0f; }
-                        _toggleBtn.Checked = false; _ipLabel.Text = "tap toggle to connect"; _ipLabel.ForeColor = Theme.TextDim;
+                        _toggleBtn.Checked = false; _ipLabel.Text = string.Empty; _ipLabel.ForeColor = Theme.TextDim;
                         LockControls(false);
                         if (_tunnelStateWorker != null && _tunnelStateWorker.IsBusy) _tunnelStateWorker.CancelAsync();
                         _wiresock.Disconnect();
@@ -1107,6 +1107,40 @@ namespace WireSockUI.Forms
             float inv = 1f - t;
             return 1f - inv * inv * inv;
         }
+
+        // Composite a UserPaint child against its parent's background. Walks up the parent
+        // chain until it finds a GradientPanel ancestor (which exposes its cached bitmap)
+        // or an opaque parent (whose BackColor we can clear with). This is required for
+        // CheckBox/Button-derived custom controls because WinForms's built-in
+        // PaintTransparentBackground does not run for controls that have UserPaint set.
+        public static void PaintParentBackground(Control child, PaintEventArgs e)
+        {
+            if (child == null) return;
+
+            int sx = child.Left;
+            int sy = child.Top;
+            Control hop = child.Parent;
+            while (hop != null)
+            {
+                if (hop is GradientPanel gp)
+                {
+                    gp.PaintCacheTo(e.Graphics, new Rectangle(sx, sy, child.Width, child.Height));
+                    return;
+                }
+                if (hop.BackColor.A == 255)
+                {
+                    using (var b = new SolidBrush(hop.BackColor))
+                        e.Graphics.FillRectangle(b, child.ClientRectangle);
+                    return;
+                }
+                sx += hop.Left;
+                sy += hop.Top;
+                hop = hop.Parent;
+            }
+
+            using (var b = new SolidBrush(child.BackColor.A == 255 ? child.BackColor : Color.Black))
+                e.Graphics.FillRectangle(b, child.ClientRectangle);
+        }
     }
 
     // Animated label that smoothly cross-fades ForeColor between targets.
@@ -1261,6 +1295,19 @@ namespace WireSockUI.Forms
         {
             // Everything is painted in OnPaintBackground for transparency support.
         }
+
+        // Lets transparent UserPaint children copy a slice of our cached gradient as their
+        // background. `srcRect` is in this panel's local coordinates.
+        public void PaintCacheTo(Graphics target, Rectangle srcRect)
+        {
+            if (_cacheDirty || _cache == null) RebuildCache();
+            if (_cache == null) return;
+            var clipped = Rectangle.Intersect(srcRect, new Rectangle(0, 0, _cache.Width, _cache.Height));
+            if (clipped.Width <= 0 || clipped.Height <= 0) return;
+            target.DrawImage(_cache,
+                new Rectangle(clipped.X - srcRect.X, clipped.Y - srcRect.Y, clipped.Width, clipped.Height),
+                clipped, GraphicsUnit.Pixel);
+        }
     }
 
     // Animated gradient toggle with glow halo.
@@ -1285,6 +1332,8 @@ namespace WireSockUI.Forms
                 Invalidate();
             };
         }
+
+        protected override void OnPaintBackground(PaintEventArgs e) { UIHelpers.PaintParentBackground(this, e); }
 
         protected override void OnCheckedChanged(EventArgs e) { base.OnCheckedChanged(e); _animTimer.Start(); }
 
@@ -1361,6 +1410,8 @@ namespace WireSockUI.Forms
     {
         public ModernCheckBox() { SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true); Cursor = Cursors.Hand; BackColor = Color.Transparent; }
 
+        protected override void OnPaintBackground(PaintEventArgs e) { UIHelpers.PaintParentBackground(this, e); }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
@@ -1425,6 +1476,8 @@ namespace WireSockUI.Forms
                 Invalidate();
             };
         }
+
+        protected override void OnPaintBackground(PaintEventArgs e) { UIHelpers.PaintParentBackground(this, e); }
 
         protected override void OnMouseEnter(EventArgs e) { _hovered = true; _animTimer.Start(); base.OnMouseEnter(e); }
         protected override void OnMouseLeave(EventArgs e) { _hovered = false; _animTimer.Start(); base.OnMouseLeave(e); }
