@@ -187,34 +187,12 @@ namespace WireSockUI.Forms
 
         // ═══════════════════════════════════════════════════════════════
         //  U I   L A Y O U T
-        // ═══════════════════════════════════════════════════════════════
-
-        protected override void OnPaintBackground(PaintEventArgs e)
-        {
-            // Form-level gradient + ambient glow.
-            var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var brush = new LinearGradientBrush(ClientRectangle, Theme.BgTop, Theme.BgBottom, LinearGradientMode.Vertical))
-                g.FillRectangle(brush, ClientRectangle);
-
-            // Soft accent halo behind hero card area
-            using (var path = new GraphicsPath())
-            {
-                var glow = new Rectangle(-100, -120, ClientSize.Width + 200, 380);
-                path.AddEllipse(glow);
-                using (var pgb = new PathGradientBrush(path))
-                {
-                    pgb.CenterColor = Color.FromArgb(60, Theme.Accent);
-                    pgb.SurroundColors = new[] { Color.FromArgb(0, Theme.Accent) };
-                    g.FillEllipse(pgb, glow);
-                }
-            }
-        }
+        // ════════════════════════════════════════════════════════════════
 
         private void BuildUI()
         {
             // ── HEADER ──
-            var pnlHeader = new Panel { Dock = DockStyle.Top, Height = 70, BackColor = Color.Transparent };
+            var pnlHeader = new Panel { Dock = DockStyle.Top, Height = 70, BackColor = Theme.BgDeep };
             var lblBrand = new Label { Text = "THANKS", Font = new Font("Segoe UI", 16f, FontStyle.Bold), ForeColor = Theme.Text, AutoSize = true, Location = new Point(24, 22), BackColor = Color.Transparent };
             var lblTag = new GradientLabel
             {
@@ -248,7 +226,7 @@ namespace WireSockUI.Forms
             pnlHeader.Controls.Add(_btnLogs);
 
             // ── MAIN BODY ──
-            var pnlBody = new Panel { Dock = DockStyle.Fill, Padding = new Padding(20, 6, 20, 16), BackColor = Color.Transparent };
+            var pnlBody = new Panel { Dock = DockStyle.Fill, Padding = new Padding(20, 6, 20, 16), BackColor = Theme.BgDeep };
             _heroCard = new GradientPanel
             {
                 Dock = DockStyle.Top,
@@ -320,7 +298,7 @@ namespace WireSockUI.Forms
 
             // ──── Экшен-кнопки (DEL / EDIT / Создать / ADD) ────
             var pnlButtonsRow = new Panel { Dock = DockStyle.Top, Height = 54, BackColor = Color.Transparent, Padding = new Padding(22, 0, 22, 14) };
-            var tblButtons = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1 };
+            var tblButtons = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, BackColor = Color.Transparent };
             tblButtons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
             tblButtons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
             tblButtons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
@@ -446,7 +424,7 @@ namespace WireSockUI.Forms
             pnlBody.Controls.Add(_heroCard);
 
             // ── FOOTER ──
-            var pnlFooter = new Panel { Dock = DockStyle.Bottom, Height = 90, Padding = new Padding(20, 0, 20, 20), BackColor = Color.Transparent };
+            var pnlFooter = new Panel { Dock = DockStyle.Bottom, Height = 90, Padding = new Padding(20, 0, 20, 20), BackColor = Theme.BgDeep };
             var tblLinks = new TableLayoutPanel { Dock = DockStyle.Top, Height = 44, ColumnCount = 2, RowCount = 1, BackColor = Color.Transparent };
             tblLinks.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
             tblLinks.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
@@ -1142,6 +1120,7 @@ namespace WireSockUI.Forms
         public AnimatedColorLabel()
         {
             DoubleBuffered = true;
+            SetStyle(ControlStyles.SupportsTransparentBackColor | ControlStyles.OptimizedDoubleBuffer, true);
             BackColor = Color.Transparent;
             _fromColor = base.ForeColor;
             _targetColor = base.ForeColor;
@@ -1172,7 +1151,7 @@ namespace WireSockUI.Forms
         public Color ColorTop { get; set; } = Color.White;
         public Color ColorBottom { get; set; } = Color.LightGray;
 
-        public GradientLabel() { SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer, true); BackColor = Color.Transparent; }
+        public GradientLabel() { SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true); BackColor = Color.Transparent; }
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -1194,65 +1173,93 @@ namespace WireSockUI.Forms
     }
 
     // Smoothly animated rounded panel with two-stop linear gradient + accent border.
+    // Paints into a cached bitmap so transparent children see the painted gradient correctly
+    // and form-level invalidations stay cheap.
     public class GradientPanel : Panel
     {
         public int Radius { get; set; } = 16;
-        public Color ColorTop { get; set; } = Color.FromArgb(28, 28, 38);
-        public Color ColorBottom { get; set; } = Color.FromArgb(18, 18, 26);
-        public Color BorderColor { get; set; } = Color.FromArgb(46, 46, 58);
         public int BorderThickness { get; set; } = 1;
-        public Color AccentColor { get; set; } = Color.FromArgb(16, 185, 129);
-        public float AccentIntensity { get; set; } = 0f;
+
+        private Color _colorTop = Color.FromArgb(28, 28, 38);
+        private Color _colorBottom = Color.FromArgb(18, 18, 26);
+        private Color _borderColor = Color.FromArgb(46, 46, 58);
+        private Color _accentColor = Color.FromArgb(16, 185, 129);
+        private float _accentIntensity = 0f;
+        private Bitmap _cache;
+        private bool _cacheDirty = true;
+
+        public Color ColorTop { get { return _colorTop; } set { if (_colorTop != value) { _colorTop = value; _cacheDirty = true; Invalidate(); } } }
+        public Color ColorBottom { get { return _colorBottom; } set { if (_colorBottom != value) { _colorBottom = value; _cacheDirty = true; Invalidate(); } } }
+        public Color BorderColor { get { return _borderColor; } set { if (_borderColor != value) { _borderColor = value; _cacheDirty = true; Invalidate(); } } }
+        public Color AccentColor { get { return _accentColor; } set { if (_accentColor != value) { _accentColor = value; _cacheDirty = true; Invalidate(); } } }
+        public float AccentIntensity { get { return _accentIntensity; } set { if (_accentIntensity != value) { _accentIntensity = value; _cacheDirty = true; Invalidate(); } } }
 
         public GradientPanel()
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            BackColor = Color.Transparent;
+            // Solid fallback so any sliver outside the rounded path matches the parent.
+            BackColor = Color.FromArgb(8, 8, 14);
+        }
+
+        protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e); _cacheDirty = true; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) { _cache?.Dispose(); _cache = null; }
+            base.Dispose(disposing);
+        }
+
+        private void RebuildCache()
+        {
+            _cache?.Dispose();
+            if (Width <= 0 || Height <= 0) { _cache = null; _cacheDirty = false; return; }
+            _cache = new Bitmap(Width, Height); // transparent by default
+            using (var g = Graphics.FromImage(_cache))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                var rect = new Rectangle(0, 0, Width - 1, Height - 1);
+                using (var path = UIHelpers.GetRoundedPath(rect, Radius))
+                {
+                    using (var brush = new LinearGradientBrush(rect, _colorTop, _colorBottom, LinearGradientMode.Vertical))
+                        g.FillPath(brush, path);
+                    int hh = Math.Max(1, rect.Height / 2);
+                    using (var hl = new LinearGradientBrush(new Rectangle(rect.X, rect.Y, rect.Width, hh), Color.FromArgb(14, 255, 255, 255), Color.Transparent, LinearGradientMode.Vertical))
+                    {
+                        var clip = g.Clip;
+                        g.SetClip(path);
+                        g.FillRectangle(hl, new Rectangle(rect.X, rect.Y, rect.Width, hh));
+                        g.Clip = clip;
+                    }
+                    Color borderColor = UIHelpers.Blend(_borderColor, _accentColor, _accentIntensity);
+                    if (BorderThickness > 0)
+                        using (var pen = new Pen(borderColor, BorderThickness)) g.DrawPath(pen, path);
+                    if (_accentIntensity > 0.05f)
+                    {
+                        using (var pen = new Pen(Color.FromArgb((int)(60 * _accentIntensity), _accentColor), 1.5f))
+                        {
+                            var inner = new Rectangle(rect.X + 1, rect.Y + 1, rect.Width - 2, rect.Height - 2);
+                            using (var p = UIHelpers.GetRoundedPath(inner, Math.Max(1, Radius - 1))) g.DrawPath(pen, p);
+                        }
+                    }
+                }
+            }
+            _cacheDirty = false;
         }
 
         protected override void OnPaintBackground(PaintEventArgs e)
         {
-            // Skip default; we draw everything ourselves so nested controls inherit no painted ground.
+            // Clear with parent's BackColor so rounded corners blend cleanly.
+            Color clear = Parent != null ? Parent.BackColor : BackColor;
+            if (clear.A < 255) clear = BackColor;
+            using (var b = new SolidBrush(clear)) e.Graphics.FillRectangle(b, ClientRectangle);
+
+            if (_cacheDirty || _cache == null) RebuildCache();
+            if (_cache != null) e.Graphics.DrawImageUnscaled(_cache, 0, 0);
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-
-            var rect = new Rectangle(0, 0, Width - 1, Height - 1);
-            using (var path = UIHelpers.GetRoundedPath(rect, Radius))
-            {
-                using (var brush = new LinearGradientBrush(rect, ColorTop, ColorBottom, LinearGradientMode.Vertical))
-                    g.FillPath(brush, path);
-
-                // Subtle inner top highlight
-                using (var hl = new LinearGradientBrush(new Rectangle(rect.X, rect.Y, rect.Width, rect.Height / 2), Color.FromArgb(14, 255, 255, 255), Color.Transparent, LinearGradientMode.Vertical))
-                {
-                    var clip = g.Clip;
-                    g.SetClip(path);
-                    g.FillRectangle(hl, new Rectangle(rect.X, rect.Y, rect.Width, rect.Height / 2));
-                    g.Clip = clip;
-                }
-
-                // Border (gradient between BorderColor and AccentColor mixed by AccentIntensity)
-                Color top = UIHelpers.Blend(BorderColor, AccentColor, AccentIntensity);
-                Color bot = UIHelpers.Blend(BorderColor, AccentColor, AccentIntensity * 0.5f);
-                if (BorderThickness > 0)
-                {
-                    using (var pen = new Pen(top, BorderThickness)) g.DrawPath(pen, path);
-                }
-
-                // Glow ring inside when accent intensity > 0
-                if (AccentIntensity > 0.05f)
-                {
-                    using (var pen = new Pen(Color.FromArgb((int)(60 * AccentIntensity), AccentColor), 1.5f))
-                    {
-                        var inner = new Rectangle(rect.X + 1, rect.Y + 1, rect.Width - 2, rect.Height - 2);
-                        using (var p = UIHelpers.GetRoundedPath(inner, Math.Max(1, Radius - 1))) g.DrawPath(pen, p);
-                    }
-                }
-            }
+            // Everything is painted in OnPaintBackground for transparency support.
         }
     }
 
@@ -1265,7 +1272,7 @@ namespace WireSockUI.Forms
 
         public GlowToggle()
         {
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true);
             Appearance = Appearance.Button; AutoSize = false; Cursor = Cursors.Hand;
             BackColor = Color.Transparent;
             _animTimer = new System.Windows.Forms.Timer { Interval = 14 };
@@ -1352,7 +1359,7 @@ namespace WireSockUI.Forms
 
     public class ModernCheckBox : CheckBox
     {
-        public ModernCheckBox() { SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true); Cursor = Cursors.Hand; BackColor = Color.Transparent; }
+        public ModernCheckBox() { SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.SupportsTransparentBackColor, true); Cursor = Cursors.Hand; BackColor = Color.Transparent; }
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -1404,7 +1411,7 @@ namespace WireSockUI.Forms
 
         public GradientButton()
         {
-            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
             FlatStyle = FlatStyle.Flat;
             FlatAppearance.BorderSize = 0;
             BackColor = Color.Transparent;
